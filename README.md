@@ -1,2 +1,1 @@
-# fido
-
+# FIDO Algorithm with improved Concrete Dropout
