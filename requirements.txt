@@ -1,0 +1,5 @@
+torch~=1.13
+torchmetrics~=0.7
+torchvision~=0.14
+
+matplotlib
