@@ -1,8 +1,12 @@
-import torch as th
+import cv2
 import numpy as np
+import torch as th
 
 from numpy.lib.stride_tricks import sliding_window_view
+from skimage.measure import regionprops
 from torchvision.transforms import functional as tr
+
+from fido.metrics import _thresh
 
 
 def patches(im, size):
@@ -57,3 +61,59 @@ def new_infill(im: th.Tensor, strategy: str, *, mean: float = 0.5, std: float = 
 
     return (infill - mean) / std
 
+
+
+
+def _calc_bbox(mask, min_size, *, pad: int = 10, squared: bool = True):
+    props = regionprops(mask)
+    for prop in props:
+        if prop.label == 1:
+            y0, x0, y1, x1 = prop.bbox
+            break
+
+    w, h = max(x1-x0+pad, min_size), max(y1-y0+pad, min_size)
+    cx, cy = (x1+x0)/2, (y1+y0)/2
+
+    if squared:
+        w = h = max(w, h)
+
+    x0, y0 = max(cx - w//2, 0), max(cy - h//2, 0)
+
+    return int(x0), int(y0), int(w), int(h)
+
+def enhance(im: np.ndarray, ssr: np.ndarray, sdr: np.ndarray, *,
+    infill_strategy: str = "blur",
+    mask_to_use: str = "joint",
+    cropped: bool = True,
+    threshold: float = 0.5,
+    sigma: float = 3.0,
+    ):
+
+    assert mask_to_use in ["ssr", "sdr", "joint"]
+
+    if mask_to_use == "ssr":
+        sal = ssr.clone()
+    elif mask_to_use == "sdr":
+        sal = sdr.clone()
+    else:
+        sal = np.sqrt(ssr * sdr)
+
+    *size, c = im.shape
+    sal = cv2.resize(sal, size)
+
+    _im = th.as_tensor(im.transpose(2,0,1))
+    infill = new_infill(_im, strategy=infill_strategy, mean=0, std=1.0)
+    infill = infill.detach().cpu().numpy().transpose(1,2,0).astype(im.dtype)
+
+    A = im.astype(np.float32)
+    B = infill.astype(np.float32)
+    alpha = sal[:, :, None]
+    enhanced = (A * alpha + B * (1-alpha)).astype(im.dtype)
+
+    if not cropped:
+        return enhanced, sal
+
+    mask = _thresh(sal, threshold, sigma=sigma, supress_value=0.0)
+    x0, y0, w, h = _calc_bbox((mask != 0.0).astype(np.int32), min_size=64)
+
+    return enhanced[y0:y0+h, x0:x0+w], sal

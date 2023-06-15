@@ -34,7 +34,8 @@ class Metrics:
         for values in [self.ssr_probs, self.sdr_probs, self.losses, self.l1_losses, self.tv_losses]:
             values.clear()
 
-def _thresh(sal, thresh: float, *, normalize: bool = False, sigma: float = None):
+def _thresh(sal, thresh: float, *, normalize: bool = False, sigma: float = None,
+    supress_value: float = None):
 
     sal = sal.copy()
 
@@ -50,7 +51,7 @@ def _thresh(sal, thresh: float, *, normalize: bool = False, sigma: float = None)
     if thresh == "mean" or not (sal > thresh).any():
         thresh = sal.mean()
 
-    sal[sal < thresh] = np.nan
+    sal[sal < thresh] = np.nan if supress_value is None else supress_value
 
     return sal
 
