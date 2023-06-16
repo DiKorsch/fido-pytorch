@@ -34,7 +34,7 @@ def new_infill(im: th.Tensor, strategy: str, *, mean: float = 0.5, std: float = 
     elif strategy == "blur":
         # should result in std=10, same as in the paper
         # de-normalize first
-        infill = tr.gaussian_blur(im, kernel_size=75)
+        infill = tr.gaussian_blur(im.to(device), kernel_size=75).to(im.device)
 
     elif strategy == "local":
         pass
@@ -87,9 +87,13 @@ def enhance(im: np.ndarray, ssr: np.ndarray, sdr: np.ndarray, *,
     cropped: bool = True,
     threshold: float = 0.5,
     sigma: float = 3.0,
+
+    device = None,
     ):
 
     assert mask_to_use in ["ssr", "sdr", "joint"]
+    assert infill_strategy == "blur", \
+        "only gaussian_blur infill is currently supported!"
 
     if mask_to_use == "ssr":
         sal = ssr.clone()
@@ -100,10 +104,7 @@ def enhance(im: np.ndarray, ssr: np.ndarray, sdr: np.ndarray, *,
 
     *size, c = im.shape
     sal = cv2.resize(sal, size)
-
-    _im = th.as_tensor(im.transpose(2,0,1))
-    infill = new_infill(_im, strategy=infill_strategy, mean=0, std=1.0)
-    infill = infill.detach().cpu().numpy().transpose(1,2,0).astype(im.dtype)
+    infill = cv2.GaussianBlur(im, (0, 0), sigmaX=10)
 
     A = im.astype(np.float32)
     B = infill.astype(np.float32)

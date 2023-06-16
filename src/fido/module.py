@@ -24,7 +24,7 @@ class FIDO(th.nn.Module):
     def new(cls, im, params: MaskConfig, *, device):
 
         # de-normalize first
-        infill = new_infill(im * 0.5 + 0.5, params.infill_strategy)
+        infill = new_infill(im * 0.5 + 0.5, params.infill_strategy, device=device)
 
         C, H, W = im.shape
         size = (params.mask_size, params.mask_size)
