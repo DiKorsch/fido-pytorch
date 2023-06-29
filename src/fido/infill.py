@@ -92,8 +92,8 @@ def enhance(im: np.ndarray, ssr: np.ndarray, sdr: np.ndarray, *,
     ):
 
     assert mask_to_use in ["ssr", "sdr", "joint"]
-    assert infill_strategy == "blur", \
-        "only gaussian_blur infill is currently supported!"
+    assert infill_strategy in ["blur", "original"], \
+        "only 'gaussian_blur' or 'original' infills are currently supported!"
 
     if mask_to_use == "ssr":
         sal = ssr.clone()
@@ -104,7 +104,10 @@ def enhance(im: np.ndarray, ssr: np.ndarray, sdr: np.ndarray, *,
 
     *size, c = im.shape
     sal = cv2.resize(sal, size)
-    infill = cv2.GaussianBlur(im, (0, 0), sigmaX=10)
+    if infill_strategy == "blur":
+        infill = cv2.GaussianBlur(im, (0, 0), sigmaX=10)
+    else:
+        infill = im.copy()
 
     A = im.astype(np.float32)
     B = infill.astype(np.float32)
