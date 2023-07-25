@@ -1,27 +1,38 @@
 import numpy as np
 import torch as th
 
-EPS = np.finfo(float).eps
+EPS = 1e-7
 class SigmoidConcreteDropout(th.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x, temp: float = 1.0, u = None):
+    def forward(ctx, logit_p, temp: float = 1.0, u = None):
+        """
+            our proposed simplification
+        """
         global EPS
         temp = th.scalar_tensor(temp)
 
         if u is None:
-            u = th.zeros_like(x).uniform_()
+            u = th.zeros_like(logit_p).uniform_()
 
         noise = ((u + EPS) / (1 - u  + EPS)).log()
-        xt_exp = ((x + noise) / temp).exp()
+        logit_p_temp = (logit_p + noise) / temp
+        res = logit_p_temp.sigmoid()
 
-        ctx.save_for_backward(xt_exp, temp)
-        return 1 / (xt_exp + 1)
+        ctx.save_for_backward(res, logit_p_temp, temp)
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):
-        xt_exp, temp = ctx.saved_tensors
-        grad = -(xt_exp) / (xt_exp + 1).pow(2) / temp
+        """
+            Gradient of random_tensor w.r.t logit_p is simply
+            1/temp * sigmoid(logit_p_temp)^2 * exp(-logit_p_temp)
+        """
+        res, logit_p_temp, temp = ctx.saved_tensors
+        grad = th.zeros_like(res)
+        mask = res != 0
+        grad[mask] = res[mask]**2 * (-logit_p_temp[mask]).exp() / temp
+
         return grad * grad_output, None, None
 
     @classmethod

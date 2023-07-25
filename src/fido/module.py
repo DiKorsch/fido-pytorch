@@ -69,7 +69,7 @@ class FIDO(th.nn.Module):
         # p = th.stack([self.ssr_logit_p, self.sdr_logit_p], axis=0)
         p = th.stack([self.ssr_dropout_rate, self.sdr_dropout_rate], axis=0)
         # p = self.joint_dropout_rate[None]
-        return tm.TotalVariation(reduction=reduction)(p[None])
+        return tm.TotalVariation(reduction=reduction).to(p.device)(p[None])
 
     def l1_norm(self):
         # return self.joint_dropout_rate.sum()
