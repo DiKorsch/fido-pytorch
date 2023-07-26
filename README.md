@@ -59,7 +59,7 @@ This work is licensed under a [GNU Affero General Public License][agplv3].
 ## Citation
 You are welcome to use our code in your research! If you do so please cite it as:
 
-```
+```bibtex
 @inproceedings{Korsch23:SCD,
     author = {Dimitri Korsch and Maha Shadaydeh and Joachim Denzler},
     booktitle = {German Conference on Pattern Recognition (GCPR)},
