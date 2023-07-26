@@ -60,7 +60,7 @@ This work is licensed under a [GNU Affero General Public License][agplv3].
 You are welcome to use our code in your research! If you do so please cite it as:
 
 ```
-@inproceedings{Korsch23:CSD,
+@inproceedings{Korsch23:SCD,
     author = {Dimitri Korsch and Maha Shadaydeh and Joachim Denzler},
     booktitle = {German Conference on Pattern Recognition (GCPR)},
     title = {Simplified Concrete Dropout - Improving the Generation of Attribution Masks for Fine-grained Classification},
