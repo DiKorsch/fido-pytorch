@@ -69,7 +69,7 @@ class FIDO(th.nn.Module):
         # p = th.stack([self.ssr_logit_p, self.sdr_logit_p], axis=0)
         p = th.stack([self.ssr_dropout_rate, self.sdr_dropout_rate], axis=0)
         # p = self.joint_dropout_rate[None]
-        return tm.TotalVariation(reduction=reduction).to(p.device)(p[None])
+        return tm.image.TotalVariation(reduction=reduction).to(p.device)(p[None])
 
     def l1_norm(self):
         # return self.joint_dropout_rate.sum()
@@ -120,7 +120,7 @@ class FIDO(th.nn.Module):
         sdr = self.sdr(X, **kwargs)
         return ssr, sdr
 
-    def objective(self, X, y, clf, *, batch_size: int, deterministic: bool = False):
+    def objective(self, X, y, clf, *, batch_size: int, deterministic: bool = False, add_deterministic: bool = False):
         ssr, sdr = self(X, batch_size=batch_size, deterministic=deterministic)
         n = len(ssr)
         _x = th.concatenate([ssr, sdr])
@@ -129,11 +129,17 @@ class FIDO(th.nn.Module):
         ssr_odds, sdr_odds = odds[:n], odds[n:]
         # sdr - ssr <== minimizing sdr and maximizing ssr probabilities
         loss = (sdr_odds - ssr_odds).mean()
+
+        if not deterministic and add_deterministic:
+            _, _, det_loss, _, _ = self.objective(X, y, clf, batch_size=1, deterministic=True, add_deterministic=False)
+            loss += det_loss
+
         return (ssr, sdr), (ssr_prob.mean(), sdr_prob.mean()), loss, self.l1_norm(), self.tv_loss()
 
     def fit(self, im, y, clf, *, config: FIDOConfig, metrics: Metrics = None, update_callback = None):
 
         opt = th.optim.AdamW(self.params, lr=config.learning_rate, eps=0.1, weight_decay=config.l2)
+        # opt = th.optim.SGD(self.params, lr=config.learning_rate, momentum=0.9, weight_decay=config.l2)
         opt.zero_grad()
 
         ssr_grad, sdr_grad = 1, 1
@@ -142,7 +148,6 @@ class FIDO(th.nn.Module):
             if config.approx_steps is None:
                 # no approximation
                 masks, probs, loss, l1_norm, tvl = self.objective(im, y, clf, batch_size=config.batch_size)
-
             else:
                 if i % config.approx_steps == 0:
                     (ssr, sdr), probs, loss, l1_norm, tvl = self.objective(im, y, clf, batch_size=config.batch_size)
@@ -184,7 +189,7 @@ class FIDO(th.nn.Module):
         update_callback(i, is_last_step=True)
 
 
-    def plot(self, im, pred, clf, *, output=None, metrics: dict = None):
+    def plot(self, im, pred, clf, *, output=None, metrics: dict = None, thresh: float = None):
         ssr_keep_rate = self._upsample(im, self._keep_rate(self.ssr_logit_p, deterministic=True))
         ssr_keep_rate = ssr_keep_rate.detach().cpu().squeeze(0).numpy()
         # ssr_bernouli = self._upsample(im, self._keep_rate(self.ssr_logit_p, deterministic=False))
@@ -194,6 +199,9 @@ class FIDO(th.nn.Module):
         # sdr_bernouli = self._upsample(im, self._keep_rate(self.sdr_logit_p, deterministic=False))
 
         joint_keep_rate = np.sqrt(ssr_keep_rate * (1-sdr_keep_rate))
+
+        if thresh is not None:
+            joint_keep_rate[joint_keep_rate < thresh] = np.nan
 
         cls_id = pred.argmax()
         orig_im = (im * 0.5 + 0.5).permute(1, 2, 0).numpy()
@@ -256,6 +264,7 @@ class FIDO(th.nn.Module):
             plt.show()
         else:
             plt.savefig(output)
+        plt.close(fig=fig)
 
 
         if metrics is not None:
@@ -274,4 +283,4 @@ class FIDO(th.nn.Module):
                 loss_graphs = output.with_suffix(f".losses{output.suffix}")
                 plt.savefig(loss_graphs)
 
-        plt.close()
+            plt.close(fig=fig)

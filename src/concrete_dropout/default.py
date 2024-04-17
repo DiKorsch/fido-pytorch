@@ -1,8 +1,10 @@
 import numpy as np
 import torch as th
 
-def concrete_dropout(dropout_rate: th.Tensor, temp: float = 0.1, eps: float = np.finfo(float).eps):
-    u = th.zeros_like(dropout_rate).uniform_()
+
+def concrete_dropout(dropout_rate: th.Tensor, temp: float = 0.1, u = None, eps: float = np.finfo(float).eps):
+    if u is None:
+        u = th.zeros_like(dropout_rate).uniform_()
 
     approx = (
         (dropout_rate + eps).log() -
@@ -13,4 +15,3 @@ def concrete_dropout(dropout_rate: th.Tensor, temp: float = 0.1, eps: float = np
     )
 
     return 1 - (approx / temp).sigmoid()
-
