@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from fido.infill import Infill
 
 @dataclass
 class FIDOConfig:
@@ -23,4 +24,4 @@ class FIDOConfig:
 class MaskConfig:
     optimized: bool = True
     mask_size: int = None
-    infill_strategy: str = "blur"
+    infill_strategy: Infill = Infill.BLUR

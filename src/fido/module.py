@@ -10,7 +10,6 @@ from concrete_dropout import concrete_dropout
 from concrete_dropout import sigmoid_concrete_dropout
 from fido.configs import FIDOConfig
 from fido.configs import MaskConfig
-from fido.infill import new_infill
 from fido.metrics import Metrics
 
 def reg_scale(i, max_value):
@@ -21,10 +20,10 @@ def reg_scale(i, max_value):
 class FIDO(th.nn.Module):
 
     @classmethod
-    def new(cls, im, params: MaskConfig, *, device):
+    def new(cls, im, params: MaskConfig, *, device: th.device):
 
         # de-normalize first
-        infill = new_infill(im * 0.5 + 0.5, params.infill_strategy, device=device)
+        infill = params.infill_strategy.new(im * 0.5 + 0.5, device=device)
 
         C, H, W = im.shape
         size = (params.mask_size, params.mask_size)
