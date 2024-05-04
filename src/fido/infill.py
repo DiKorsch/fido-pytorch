@@ -7,7 +7,7 @@ from functools import partial
 from numpy.lib.stride_tricks import sliding_window_view
 from skimage.measure import regionprops
 from torchvision.transforms import functional as tr
-
+from pathlib import Path
 from fido.metrics import _thresh
 
 
@@ -15,6 +15,7 @@ def patches(im, size):
     window_shape = (size, size, im.shape[-1])
     return sliding_window_view(im, window_shape)[::size, ::size]
 
+gan = None
 
 class Infill(enum.Enum):
     ORIGINIAL = enum.auto()
@@ -23,12 +24,14 @@ class Infill(enum.Enum):
     NORMAL = enum.auto()
     MEAN = enum.auto()
     BLUR = enum.auto()
+    GAN = enum.auto()
     KNOCKOFF = enum.auto()
 
     def normalize(self, arr: th.Tensor, mean: float, std: float) -> th.Tensor:
         return (arr - mean) / std
 
     def new(self, im: th.Tensor,  *, mean: float = 0.5, std: float = 0.5, size: int = 9, device: th.device = None):
+        global gan
         _normalize = partial(self.normalize, mean=mean, std=std)
         if self == Infill.BLUR:
             # should result in std=10, same as in the paper
@@ -70,8 +73,60 @@ class Infill(enum.Enum):
 
             return _normalize(th.tensor(infill))
 
+        if self == Infill.GAN:
+            if gan is None:
+                gan = GAN(device=im.device)
+            infill = gan(im)
+            return infill
+
         raise NotImplementedError(f"Strategy is not implemented yet: {self}!")
 
+import dmfn  # noqa: E402
+from dmfn.models.networks import define_G  # noqa: E402
+
+class GAN:
+
+    DEFAULT_WEIGHTS: Path = Path(dmfn.__file__).resolve().parent.parent.parent / "outputs/cub/checkpoints/latest_G.pth"
+
+    @staticmethod
+    def weights_init(m):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            th.nn.init.orthogonal_(m.weight.data, 1.0)
+        elif classname.find('BatchNorm') != -1:
+            m.weight.data.normal_(1.0, 0.02)
+            m.bias.data.fill_(0)
+        elif classname.find('Linear') != -1:
+            th.nn.init.orthogonal_(m.weight.data, 1.0)
+            if m.bias is not None:
+                m.bias.data.fill_(0.0)
+
+    def __init__(self, weights: Path = None, device: th.device = th.device("cpu")):
+
+        if weights is None:
+            weights = GAN.DEFAULT_WEIGHTS
+        assert Path(weights).exists(), \
+            f"Could not find weights: {weights}"
+
+        opt = dict(network_G=dict( which_model_G='DMFN', in_nc=4, out_nc=3, nf=64, n_res=8),is_train=False)
+        self.generator = define_G(opt).to(device)
+        self.generator.load_state_dict(th.load(weights), strict=True)
+        self.generator.eval()
+
+    def __call__(self, im: th.Tensor, *, grid_size: int = 16, size: tuple = (256, 256)):
+        mask = th.randint(0, 2, size=(1, 1, grid_size, grid_size), dtype=im.dtype, device=im.device)
+        orig_size = im.size()[-2:]
+        im = tr.resize(im, size)
+        mask = tr.resize(mask, size, interpolation=tr.InterpolationMode.NEAREST)
+
+        X1 = th.cat([im * mask, 1-mask], dim=1)
+        X2 = th.cat([im * (1-mask), mask], dim=1)
+
+        X = th.cat([X1, X2], dim=0)
+        out = self.generator(X).detach()
+        # combine the result from the generated images
+        res = out[0] * (1 - mask[0]) + out[1] * mask[0]
+        return tr.resize(res, orig_size)
 
 def _calc_bbox(mask, min_size, *, pad: int = 10, squared: bool = True):
     props = regionprops(mask)
