@@ -51,7 +51,7 @@ class LazyLoadMaps:
         return self._cache[key].unpack()
 
     def __len__(self) -> int:
-        return len(self._npzfile.files) // 2
+        return len(self.npzfile.files) // 2
 
 def _maps_file_name(subset, *, lazy_load: bool = True):
     suffix = ".lazy" if lazy_load else ""
