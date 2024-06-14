@@ -45,10 +45,12 @@ class Infill(enum.Enum):
             return _normalize(th.zeros_like(im, device=device))
 
         if self == Infill.UNIFORM:
-            return _normalize(th.zeros_like(im, device=device).uniform_(0, 1))
+            res = th.zeros_like(im, device=device).uniform_(0, 1)
+            return _normalize(self.normalize(res, mean=res.mean(), std=res.std()))
 
         if self == Infill.NORMAL:
-            return _normalize(th.zeros_like(im, device=device).normal_(std=0.2))
+            res = th.zeros_like(im, device=device).normal_(0, 1)
+            return _normalize(self.normalize(res, mean=res.mean(), std=res.std()))
 
         if self == Infill.MEAN:
             mean_pixel = im.mean(axis=(1,2), keepdim=True)
