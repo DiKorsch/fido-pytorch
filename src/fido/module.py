@@ -185,7 +185,8 @@ class FIDO(th.nn.Module):
 
             opt.step()
             opt.zero_grad()
-        update_callback(i, is_last_step=True)
+        if update_callback is not None:
+            update_callback(i, is_last_step=True)
 
 
     def plot(self, im, pred, clf, *, output=None, metrics: dict = None, thresh: float = None):
