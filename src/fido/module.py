@@ -47,6 +47,17 @@ class FIDO(th.nn.Module):
         self._optimized = optimized
         self._infill = infill
 
+    def to(self, *args, **kwargs):
+        self._infill = self._infill.to(*args, **kwargs)
+        self.ssr_logit_p = self.ssr_logit_p.to(*args, **kwargs)
+        self.sdr_logit_p = self.sdr_logit_p.to(*args, **kwargs)
+        return super().to(*args, **kwargs)
+
+    def cpu(self):
+        self._infill = self._infill.cpu()
+        self.ssr_logit_p = self.ssr_logit_p.cpu()
+        self.sdr_logit_p = self.sdr_logit_p.cpu()
+        return super().cpu()
 
     @property
     def params(self):
@@ -123,7 +134,12 @@ class FIDO(th.nn.Module):
         ssr, sdr = self(X, batch_size=batch_size, deterministic=deterministic)
         n = len(ssr)
         _x = th.concatenate([ssr, sdr])
-        prob, odds = clf.log_odds(_x, c=y)
+        if hasattr(clf, "log_odds"):
+            prob, odds = clf.log_odds(_x, c=y)
+        else:
+            logits = clf(_x)
+            prob, odds = log_odds(logits, c=y)
+
         ssr_prob, sdr_prob = prob[:n], prob[n:]
         ssr_odds, sdr_odds = odds[:n], odds[n:]
         # sdr - ssr <== minimizing sdr and maximizing ssr probabilities
@@ -284,3 +300,12 @@ class FIDO(th.nn.Module):
                 plt.savefig(loss_graphs)
 
             plt.close(fig=fig)
+
+
+def log_odds(logits, c):
+    # normalized log-probabilities
+    log_probs = F.log_softmax(logits, dim=1)
+    mask = th.ones_like(log_probs[:1])
+    mask[:, c] = 0
+    odds = log_probs[:, c] - th.logsumexp(log_probs * mask, dim=1)
+    return log_probs[:, c].exp(), odds
