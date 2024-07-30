@@ -20,7 +20,7 @@ def reg_scale(i, max_value):
 class FIDO(th.nn.Module):
 
     @classmethod
-    def new(cls, im, params: MaskConfig, *, device: th.device):
+    def new(cls, im, params: MaskConfig, *, device: th.device, track_metrics: bool = False):
 
         # de-normalize first
         infill = params.infill_strategy.new(im * 0.5 + 0.5, device=device)
@@ -30,14 +30,22 @@ class FIDO(th.nn.Module):
         if params.mask_size is None:
             size = (H, W)
 
-        fido = cls(size, infill=infill.unsqueeze(0), device=device, optimized=params.optimized)
+        metrics = Metrics() if track_metrics else None
+
+        fido = cls(size,
+                   infill=infill.unsqueeze(0),
+                   device=device,
+                   optimized=params.optimized,
+                   metrics=metrics,
+                   )
 
         return fido
 
     def __init__(self, size: tuple, *,
         infill: th.Tensor,
         optimized: bool = True,
-        device = None
+        device = None,
+        metrics: Metrics = None
     ):
         super().__init__()
 
@@ -46,6 +54,7 @@ class FIDO(th.nn.Module):
 
         self._optimized = optimized
         self._infill = infill
+        self.metrics = metrics
 
     def to(self, *args, **kwargs):
         self._infill = self._infill.to(*args, **kwargs)
@@ -205,7 +214,7 @@ class FIDO(th.nn.Module):
             update_callback(i, is_last_step=True)
 
 
-    def plot(self, im, pred, clf, *, output=None, metrics: dict = None, thresh: float = None):
+    def plot(self, im, pred, clf, *, output=None, thresh: float = None):
         ssr_keep_rate = self._upsample(im, self._keep_rate(self.ssr_logit_p, deterministic=True))
         ssr_keep_rate = ssr_keep_rate.detach().cpu().squeeze(0).numpy()
         # ssr_bernouli = self._upsample(im, self._keep_rate(self.ssr_logit_p, deterministic=False))
@@ -282,8 +291,8 @@ class FIDO(th.nn.Module):
             plt.savefig(output)
         plt.close(fig=fig)
 
-
-        if metrics is not None:
+        if self.metrics is not None:
+            metrics = self.metrics.as_dict()
             fig, axs = plt.subplots(len(metrics), 1, figsize=(16,9), squeeze=False)
             for i, (key, values) in enumerate(metrics.items()):
                 ax = axs[np.unravel_index(i, axs.shape)]
