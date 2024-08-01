@@ -2,6 +2,7 @@ import numpy as np
 import torch as th
 import torch.nn.functional as F
 import torchmetrics as tm
+import typing as T
 
 from matplotlib import pyplot as plt
 from pathlib import Path
@@ -17,10 +18,13 @@ def reg_scale(i, max_value):
         return 1.0
     return i / max_value
 
+def sigm_inv(x):
+    return th.log(x / (1 - x))
+
 class FIDO(th.nn.Module):
 
     @classmethod
-    def new(cls, im, params: MaskConfig, *, device: th.device, track_metrics: bool = False):
+    def new(cls, im, params: MaskConfig, *, device: th.device, init: th.Tensor = None, track_metrics: bool = False):
 
         # de-normalize first
         infill = params.infill_strategy.new(im * 0.5 + 0.5, device=device)
@@ -34,43 +38,34 @@ class FIDO(th.nn.Module):
 
         fido = cls(size,
                    infill=infill.unsqueeze(0),
-                   device=device,
                    optimized=params.optimized,
                    metrics=metrics,
-                   )
+                   init=init,
+                )
 
-        return fido
+        return fido.to(device)
 
     def __init__(self, size: tuple, *,
         infill: th.Tensor,
+        init: T.Optional[th.Tensor] = None,
         optimized: bool = True,
-        device = None,
         metrics: Metrics = None
     ):
         super().__init__()
+        if init is None:
+            self.ssr_logit_p = th.nn.Parameter(th.zeros(size, requires_grad=True))
+            self.sdr_logit_p = th.nn.Parameter(th.zeros(size, requires_grad=True))
+        else:
+            assert init.shape == size, f"Expected shape {size} but got {init.shape}"
+            ssr_init = sigm_inv(1-init) # init = 1 - ssr_init.sigmoid()
+            sdr_init = sigm_inv(init) # init = sdr_init.sigmoid()
 
-        self.ssr_logit_p = th.zeros(size, device=device, requires_grad=True)
-        self.sdr_logit_p = th.zeros(size, device=device, requires_grad=True)
+            self.ssr_logit_p = th.nn.Parameter(ssr_init, requires_grad=True)
+            self.sdr_logit_p = th.nn.Parameter(sdr_init, requires_grad=True)
 
-        self._optimized = optimized
-        self._infill = infill
+        self.register_buffer("optimized", th.as_tensor(optimized))
+        self.register_buffer("infill", infill)
         self.metrics = metrics
-
-    def to(self, *args, **kwargs):
-        self._infill = self._infill.to(*args, **kwargs)
-        self.ssr_logit_p = self.ssr_logit_p.to(*args, **kwargs)
-        self.sdr_logit_p = self.sdr_logit_p.to(*args, **kwargs)
-        return super().to(*args, **kwargs)
-
-    def cpu(self):
-        self._infill = self._infill.cpu()
-        self.ssr_logit_p = self.ssr_logit_p.cpu()
-        self.sdr_logit_p = self.sdr_logit_p.cpu()
-        return super().cpu()
-
-    @property
-    def params(self):
-        return [self.ssr_logit_p, self.sdr_logit_p]
 
     @property
     def sdr_dropout_rate(self):
@@ -102,7 +97,7 @@ class FIDO(th.nn.Module):
             return th.stack([1 - logit_p.sigmoid()], axis=0)
         else:
             # bernouli sampling
-            if self._optimized:
+            if self.optimized:
                 return th.stack([sigmoid_concrete_dropout(logit_p) for _ in range(batch_size)], axis=0)
             else:
                 return th.stack([concrete_dropout(logit_p.sigmoid()) for _ in range(batch_size)], axis=0)
@@ -125,7 +120,7 @@ class FIDO(th.nn.Module):
         keep_rate = keep_rate.unsqueeze(1)
         X = X.unsqueeze(0)
 
-        return keep_rate * X + (1 - keep_rate) * self._infill
+        return keep_rate * X + (1 - keep_rate) * self.infill
 
     def ssr(self, X, **kwargs):
         return self._blend(X, self.ssr_logit_p, **kwargs)
@@ -162,7 +157,7 @@ class FIDO(th.nn.Module):
 
     def fit(self, im, y, clf, *, config: FIDOConfig, metrics: Metrics = None, update_callback = None):
 
-        opt = th.optim.AdamW(self.params, lr=config.learning_rate, eps=0.1, weight_decay=config.l2)
+        opt = th.optim.AdamW(self.parameters(), lr=config.learning_rate, eps=0.1, weight_decay=config.l2)
         # opt = th.optim.SGD(self.params, lr=config.learning_rate, momentum=0.9, weight_decay=config.l2)
         opt.zero_grad()
 
@@ -264,7 +259,7 @@ class FIDO(th.nn.Module):
                 ssr_keep_rate
             ),
             (
-                f"[1-SDR mask] min: {float(sdr_keep_rate.min()):.3f} | max: {float(sdr_keep_rate.max()):.3f}",
+                f"[1-SDR mask] min: {float((1-sdr_keep_rate).min()):.3f} | max: {float((1-sdr_keep_rate).max()):.3f}",
                 1-sdr_keep_rate
             ),
         ]
